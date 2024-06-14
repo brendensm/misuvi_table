@@ -6,8 +6,6 @@ library(dplyr)
 library(misuvi)
 library(htmltools)
 library(ggplot2)
-#library(png)
-#library(base64enc)
 library(bslib)
 library(leaflet)
 library(readxl)
@@ -20,11 +18,13 @@ mi <- tigris::counties(state = "MI", cb = TRUE) |> # This loads in our shapefile
                           NAME == "St. Joseph" ~ "Saint Joseph",
                           TRUE ~ NAME))
 
+sf::st_crs(mi) <- 4326
+
 
 regions <- read_xlsx("data/regional.xlsx", sheet = 2, skip = 1) |> # This code chunk imports some regional groupings we will use for filtering
   janitor::clean_names() |>
   select(fips, x5_region_grouping) |>
-  rename(region = x5_region_grouping) |>
+  rename(region = x5_region_grouping) |> # cleaning up the names
   mutate(fips = as.character(fips))
 
 
@@ -38,42 +38,37 @@ ui <- page_sidebar( # initiate ui
 
       width=500,
 
-          selectInput("type", "Select the type of data", # select the type of data set
+          selectInput("type", "Select the data set:", # select the type of data set
                       choices = c("z-scores", "percentiles", "rankings")),
 
           textInput("county", # text filter for county names
-                    "Filter by County:"),
+                    "Filter by county:"),
 
           selectInput("region", # our drop-down menu
-                      "Filter by Region:",
+                      "Filter by region:",
                       choices = c("All", "Northeast", "Upper Peninsula", "Southwest",
                                   "Northwest", "Southeast")
                       ),
 
-          leafletOutput("inputMap", height = 450)
+          leafletOutput("inputMap", height = 450) # leaflet output for our map filter
       ),
 
-    accordion(
+    accordion( # layout is accordion so we can collapse the sidebar and panels if needed
 
       multiple = TRUE, # allows multiple tabs to be open
-      open = c("Main Table", "About"), # specifies which should be left open
+      open = c("Main Table"), # specifies which should be left open
 
-        accordion_panel("About",
-                        "This table shows data from the Michigan Substance Use
-                          Vulnerability Index. The table below shows the z-scores
-                          for MISUVI composite score which is made up of the burden,
-                          resource, and social vulnerability z-scores. Z-scores greater than zero
-                          indicate counties are more vulnerable, while z-scores less than zero are
-                          less vulnerable.
-                          All data can be downloaded from the misuvi package
-                          or from the State of Michigan's Website."
+        accordion_panel("About", # here is our about section
+
+                       htmlOutput("about_html") # with the output in html for formatting linebreaks and hyperlinks
+
 
         ),
 
 
         # Show our main table
         accordion_panel("Main Table",
-           DT::dataTableOutput("table_main")
+           DT::dataTableOutput("table_main") # main table output
         )
 
 
@@ -85,9 +80,9 @@ ui <- page_sidebar( # initiate ui
 # Define server logic
 server <- function(input, output, session) {
 
-  rv <- reactiveValues()
+  rv <- reactiveValues() # initialize reactive values for our map
 
-  type_filter <- reactive({
+  type_filter <- reactive({ # This allows us to take the nicer formatted option from the menu and use the text it corresponds to to query the right misuvi data set
 
     switch(input$type,
            "z-scores" = "zscores",
@@ -97,30 +92,61 @@ server <- function(input, output, session) {
   })
 
 
-  # Data filtered from the UI inputs
+  output$about_html <- renderUI({ # output of our html about section. This was the easiest way I found to format it nicely.
+
+    HTML("This table shows data from the Michigan Substance Use
+         Vulnerability Index. The table below shows the z-scores, percentiles, or rankings for all 83 counties in Michigan.
+         The MISUVI is a standardized score
+         calculated from three domains, burden of the opioid crisis, resources available to the county,
+         and the Social Vulnerability Index (SVI).
+         MI-SUVI data is intended for policy makers and community members to understand the impact of
+         substance use across the state.<br><br>
+         This project presents an interactive, web-based alternative to downloading and navigating spreadsheets.
+         Use the filters on the left side to target a specific county or change the data set. Clicking a row of
+         the main table will open a closer view of the county's data. Cells that are green are better than the county average,
+         while those that are red are worse than the county average.
+         <br><br>",
+         "All data can be access via the
+         <a href = 'https://cran.r-project.org/web/packages/misuvi/index.html'>misuvi package</a>
+         or from the <a href = 'https://www.michigan.gov/opioids/category-data'> State of Michigan's Website.</a>
+         You can read the full technical documentation for the data
+         <a href = 'https://www.michigan.gov/opioids/-/media/Project/Websites/opioids/documents/edc32Michigan-2022-SUVI-Documentation-562024.pdf?rev=3cd9b9477c194f3fb616292157918cc2'>here.</a><br><br>"
+         )
+
+
+
+
+  })
+
+  # Initializing the data filtered from the UI inputs and the michigan_df that we will be filtering
   filtered_data <- reactiveVal(NULL)
 
   michigan_df <- reactiveVal(NULL)
 
 
 
-    observeEvent(input$type,{
+    observeEvent(input$type,{ # this makes it so each time the input of type is changed, the dataset michigan_df and the filtered data changes accordingly.
+
+      update <- misuvi_load(type = type_filter()) |> # queries data
+        add_geometry() |> # add shape file
+        left_join(regions, by = "fips") # adds regional groupings
+
+      sf::st_crs(update) <- 4326 # set crs
 
 
-      michigan_df(misuvi_load(type = type_filter()) |>
-                    add_geometry() |>
-                    left_join(regions, by = "fips"))
+      michigan_df(update) # updates michigan_df
 
-      filtered_data(michigan_df())
+      filtered_data(michigan_df()) # updates filtered_data
 
     })
 
 
-    observeEvent(input$inputMap_shape_click, {
+    observeEvent(input$inputMap_shape_click, { # this is the logic behind the "click" of the map and the filtering of the main table.
+                                                # The filtered_data() is fed into the table. This updates that data.
 
       click <- input$inputMap_shape_click
 
-      if(click$id != "selected" | !is.null(click$id)){
+      if(click$id != "selected" | !is.null(click$id)){ # a second click returns an id of "selected". SO if a county is clicked it will filter by that id
 
         mapfilter <- michigan_df()[grepl(click$id, michigan_df()$county, ignore.case = TRUE), ]
 
@@ -128,7 +154,7 @@ server <- function(input, output, session) {
 
       }
 
-      if (click$id == "selected"){
+      if (click$id == "selected"){ # and likewise in the county is clicked again, the filter is cleared.
         michigan_df() |> filtered_data()
       }
 
@@ -138,13 +164,13 @@ server <- function(input, output, session) {
 
 
 
-    observeEvent(list(input$region, input$county), {
+    observeEvent(list(input$region, input$county), { # this responds everytime the region or county inputs are changed.
 
       # Define a reactive variable to store the filtered data
       filtered_data_result <- reactiveVal(NULL)
 
       # Perform filtering based on county and region
-      if (input$county == "" & input$region == "All") {
+      if (input$county == "" & input$region == "All") { # different logic if one filter is used and the other isn't or if both are.
         filtered_data(michigan_df())
       } else {
         filtered_data_temp <- michigan_df()
@@ -160,7 +186,7 @@ server <- function(input, output, session) {
         }
 
         # Check if any rows match the filter criteria
-        if (nrow(filtered_data_temp) > 0) {
+        if (nrow(filtered_data_temp) > 0) { # this ensures if a text option returns an empty dataframe the app doesn't crash (':
           filtered_data(filtered_data_temp)
         } else {
           filtered_data(NULL)
@@ -168,8 +194,8 @@ server <- function(input, output, session) {
       }
 
       # Update the map
-      if(input$county == "" & input$region == "All"){
-        leafletProxy("inputMap", session) %>%
+      if(input$county == "" & input$region == "All"){ # Possibly a little redundant (I'm sure there's a more efficient way to do this) but it works
+        leafletProxy("inputMap", session) %>% # for each outcome it will update the map filter based on the text and grouping inputs
           clearShapes() %>%
           addPolygons(data = michigan_df(),
                       layerId = ~county,
@@ -211,8 +237,8 @@ server <- function(input, output, session) {
 
 
 
-    output$table_main <- DT::renderDataTable({
-        # main output
+    output$table_main <- DT::renderDataTable({ # the main table output
+        # first a statement to return somewhat of an error message if an invalid name is entered
 
       if(is.null(filtered_data())){
 
@@ -220,12 +246,13 @@ server <- function(input, output, session) {
 
       }else{
 
-      filtered_data() |>
-        select(county, misuvi_score, burden_score,  # select our variables of interest
+      filtered_data() |> # takes our filtered data
+        select(county, misuvi_score, burden_score,  # selects our variables of interest
                resource_score, svi_score) |>
         sf::st_set_geometry(NULL) |>
         datatable(
-          escape = FALSE, # shows our pictures
+          class = list(stripe = FALSE),
+     #     escape = FALSE, # shows our pictures
           rownames = FALSE, # removes row names
           colnames = c("County", "MI-SUVI Score", "Burden Score",
                        "Resource Score", "SVI Score"), # nicely formatted column names
@@ -265,23 +292,28 @@ server <- function(input, output, session) {
       }
     })
 
-    observeEvent(input$table_main_rows_selected, {
+    observeEvent(input$table_main_rows_selected, { # defines behavior if a row is selected in the main table
 
       row_index <- input$table_main_rows_selected
       selected_row(
-          filtered_data()[row_index, , drop = FALSE] |> sf::st_set_geometry(NULL)
+          filtered_data()[row_index, , drop = FALSE] |> sf::st_set_geometry(NULL) # isolates the row clicked
         )
 
-      showModal(
+      showModal( # creates the pop-up when clicked
         modalDialog(
           title = paste(selected_row()$county, "County"),
           fluidPage(
-            fluidRow(
+            fluidRow( # value boxes for the domain scores
               column(3, value_box("MI-SUVI Score",
                                   theme = value_box_theme(
-                                    bg = "white"),
+                                    bg = # defines the background color
+                                          if_else(type_filter() == "zscores",  if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$misuvi_score < 0, "lightgreen", "lightpink"),
+                                                if_else(type_filter() == "percentiles", if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$misuvi_score < 50, "lightgreen", "lightpink"),
+                                                        if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$misuvi_score > 42, "lightgreen", "lightpink"))  ),
+
+                                      ),
                                   value = round(filtered_data()[filtered_data()$county == selected_row()$county,]$misuvi_score, if_else(type_filter() == "zscores",   2,
-                                                                                                                                        if_else(type_filter() == "percentiles", 1,
+                                                                                                                                        if_else(type_filter() == "percentiles", 1, # rounding and the value
                                                                                                                                                 0)
                                                                                                                                         )
                                                 )
@@ -289,22 +321,52 @@ server <- function(input, output, session) {
                      ),
 
               column(3, value_box("Burden Score",
+
+                                  theme = value_box_theme(
+                                    bg =
+
+                                      if_else(type_filter() == "zscores",  if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$burden_score < 0, "lightgreen", "lightpink"),
+                                              if_else(type_filter() == "percentiles", if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$burden_score < 50, "lightgreen", "lightpink"),
+                                                      if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$burden_score > 42, "lightgreen", "lightpink"))  ),
+
+                                  ),
+
                                   value = round(filtered_data()[filtered_data()$county == selected_row()$county,]$burden_score, if_else(type_filter() == "zscores",   2,
                                                                                                                                         if_else(type_filter() == "percentiles", 1,
                                                                                                                                                 0))))),
               column(3, value_box("Resource Score",
+
+
+                                  theme = value_box_theme(
+                                    bg =
+
+                                      if_else(type_filter() == "zscores",  if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$resource_score < 0, "lightgreen", "lightpink"),
+                                              if_else(type_filter() == "percentiles", if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$resource_score < 50, "lightgreen", "lightpink"),
+                                                      if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$resource_score > 42, "lightgreen", "lightpink"))  ),
+
+                                  ),
+
                                   value = round(filtered_data()[filtered_data()$county == selected_row()$county,]$resource_score, if_else(type_filter() == "zscores",   2,
                                                                                                                                         if_else(type_filter() == "percentiles", 1,
                                                                                                                                                 0))))),
               column(3, value_box("SVI Score",
+
+
+                                  theme = value_box_theme(
+                                    bg =
+
+                                      if_else(type_filter() == "zscores",  if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$svi_score < 0, "lightgreen", "lightpink"),
+                                              if_else(type_filter() == "percentiles", if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$svi_score < 50, "lightgreen", "lightpink"),
+                                                      if_else(filtered_data()[filtered_data()$county == selected_row()$county,]$svi_score > 42, "lightgreen", "lightpink"))  ),
+
+                                  ),
+
                                   value = round(filtered_data()[filtered_data()$county == selected_row()$county,]$svi_score, if_else(type_filter() == "zscores",   2,
                                                                                                                                         if_else(type_filter() == "percentiles", 1,
                                                                                                                                                 0))))),
 
-
-
             ),
-              DTOutput("details_table")),
+              DTOutput("details_table")), # output of the second table
           easyClose = TRUE,
           footer = tagList(
             modalButton("Close")
@@ -314,11 +376,11 @@ server <- function(input, output, session) {
       )
     })
 
-    selected_row <- reactiveVal(NULL)
+    selected_row <- reactiveVal(NULL) # initializes selected row as a reactive value
 
-    output$details_table <- renderDT({
+    output$details_table <- renderDT({ # output for the second table
 
-
+      # This is getting the names of the variables a bit cleaner
       dict <- misuvi::dictionary() |> mutate(original_names = gsub("_", original_names, replacement = " "),
                                              original_names = gsub("100 000", original_names, replacement = "100,000"),
                                              original_names = gsub("1 000", original_names, replacement = "1,000"),
@@ -326,7 +388,7 @@ server <- function(input, output, session) {
                                              original_names = gsub("2018 2022", original_names, replacement = "(2018-2022)")) |>
         filter(cleaned_names %in% names(filtered_data()))
 
-
+    # transposing the selected row and merging with the clean names
      sub <-  filtered_data()[filtered_data()$county == selected_row()$county,] |>
         select(-c(fips, county)) |>
         t() |>
@@ -337,13 +399,14 @@ server <- function(input, output, session) {
 
      colnames(sub)[2] <- "V1"
 
-     sub <- sub |>
+     sub <- sub |> # filters to only what we need
         select(original_names, V1)
 
 
 
         sub[1:8,] |>
         datatable(
+          class = list(stripe = FALSE), # removes striped rows
           rownames = TRUE, # removes row names
           colnames = c("Variables", paste(type_filter())), # nicely formatted column names
           options = list(
@@ -371,7 +434,7 @@ server <- function(input, output, session) {
           backgroundColor = if_else(type_filter() == "zscores",   styleInterval(0, c('lightgreen', 'lightpink')),
                                     if_else(type_filter() == "percentiles", styleInterval(50, c('lightgreen', 'lightpink')),
                                             styleInterval(42, c('lightpink', 'lightgreen')))), # this makes the cells have conditional formatting
-          # anything less than 0 is green (better than average), greater than 0 is light pink (worse than average).
+          # anything less than 0 is green (better than average), greater than 0 is light pink (worse than average). different for each data set
         ) |>
         formatStyle(
           columns = 1:2,
@@ -382,12 +445,12 @@ server <- function(input, output, session) {
     })
 
 
-output$inputMap <- renderLeaflet({
+output$inputMap <- renderLeaflet({ # rendering the filter map
 
 
 
   leaflet(mi,
-          options = leafletOptions(
+          options = leafletOptions( # initializing the map
             zoomControl = FALSE,
             dragging = FALSE,
             minZoom = 6,
@@ -408,14 +471,12 @@ output$inputMap <- renderLeaflet({
 })
 
 
-observeEvent(input$inputMap_shape_click, {
+observeEvent(input$inputMap_shape_click, { # behavior if the county is clicked and to highlight it
   click <- input$inputMap_shape_click
 
   if (!is.null(click)) {
     # If a county is clicked
     clicked_county <- mi[mi$NAME == click$id, ]
-
-
 
     rv$mi <- clicked_county
 
