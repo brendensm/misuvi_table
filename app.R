@@ -6,8 +6,8 @@ library(dplyr)
 library(misuvi)
 library(htmltools)
 library(ggplot2)
-library(png)
-library(base64enc)
+#library(png)
+#library(base64enc)
 library(bslib)
 library(leaflet)
 library(readxl)
@@ -15,59 +15,48 @@ library(readxl)
 
 # Load in Data
 
-#michigan_df <- readRDS("data/zscore_sub_counties_2.rds")
-
-
-
-mi <- tigris::counties(state = "MI", cb = TRUE) |>
-  mutate(NAME = case_when(NAME == "St. Clair" ~ "Saint Clair",
+mi <- tigris::counties(state = "MI", cb = TRUE) |> # This loads in our shapefile for the clickable map
+  mutate(NAME = case_when(NAME == "St. Clair" ~ "Saint Clair", # We have to correct some different spellings for two counties
                           NAME == "St. Joseph" ~ "Saint Joseph",
                           TRUE ~ NAME))
 
 
-regions <- read_xlsx("data/regional.xlsx", sheet = 2, skip = 1) |> janitor::clean_names() |>
+regions <- read_xlsx("data/regional.xlsx", sheet = 2, skip = 1) |> # This code chunk imports some regional groupings we will use for filtering
+  janitor::clean_names() |>
   select(fips, x5_region_grouping) |>
   rename(region = x5_region_grouping) |>
   mutate(fips = as.character(fips))
 
 
-ui <- page_sidebar(
+ui <- page_sidebar( # initiate ui
 
-  tags$style(".modal-dialog {max-width: 60vw;} .leaflet-container {
-  background: none !important;}"),
-    title = "Michigan Substance Use Vulnerability Index (MI-SUVI) Exploration Table",
+  tags$style(".modal-dialog {max-width: 60vw;} .leaflet-container {background: none !important;}"), # custom css makes our pop-up window a bit bigger, and the leaflet background transparent
+    title = "Michigan Substance Use Vulnerability Index (MI-SUVI) Exploration Table", # title for the app
 
-    # Sidebar with two filters
+    # Sidebar with filters and map
     sidebar = sidebar(
 
       width=500,
 
-
-
-
-          selectInput("type", "Select the type of data",
+          selectInput("type", "Select the type of data", # select the type of data set
                       choices = c("z-scores", "percentiles", "rankings")),
 
-          textInput("county",
+          textInput("county", # text filter for county names
                     "Filter by County:"),
 
-          selectInput("region",
+          selectInput("region", # our drop-down menu
                       "Filter by Region:",
                       choices = c("All", "Northeast", "Upper Peninsula", "Southwest",
                                   "Northwest", "Southeast")
                       ),
 
-         # plotOutput("map"),
-          leafletOutput("inputMap", height = 550)
-
-
-
+          leafletOutput("inputMap", height = 450)
       ),
 
     accordion(
 
-      multiple = TRUE,
-      open = c("Main Table", "About"),
+      multiple = TRUE, # allows multiple tabs to be open
+      open = c("Main Table", "About"), # specifies which should be left open
 
         accordion_panel("About",
                         "This table shows data from the Michigan Substance Use
@@ -93,13 +82,10 @@ ui <- page_sidebar(
 
 )
 
-# Define server logic required to draw a histogram
+# Define server logic
 server <- function(input, output, session) {
 
-
   rv <- reactiveValues()
-
-
 
   type_filter <- reactive({
 
@@ -118,9 +104,6 @@ server <- function(input, output, session) {
 
 
 
-  # michigan_df <- reactive({misuvi_load(type = type_filter()) |>
-  #     left_join( regions, by = "fips")})
-
     observeEvent(input$type,{
 
 
@@ -129,12 +112,6 @@ server <- function(input, output, session) {
                     left_join(regions, by = "fips"))
 
       filtered_data(michigan_df())
-
-      print(input$type)
-
-      print(type_filter())
-
-      print(michigan_df())
 
     })
 
@@ -158,91 +135,40 @@ server <- function(input, output, session) {
     })
 
 
-    # observeEvent(input$county, {
-    #
-    #   if (input$county == "" & input$region == "All") {
-    #     michigan_df
-    #   } else if (input$region == "All"){
-    #     michigan_df[grepl(input$county, michigan_df$county, ignore.case = TRUE), ]
-    #   } else if (input$county == ""){
-    #     michigan_df[grepl(input$region, michigan_df$region, ignore.case = TRUE), ]
-    #   }else{
-    #     michigan_df[grepl(input$county, michigan_df$county, ignore.case = TRUE), ]
-    #
-    #     subset(michigan_df, grepl(input$county, county, ignore.case = TRUE) |
-    #              grepl(input$region, region, ignore.case = TRUE))
-    #   }
-    #
-    #
-    # })
 
 
-#  bad solution but the last bit might help
-#     observeEvent(list(input$region, input$county), {
-#
-#       if (input$county == "" & input$region == "All") {
-#         filtered_data(michigan_df())
-#         leafletProxy("inputMap", session) %>%
-#           clearShapes() %>%
-#           addPolygons(data = michigan_df(),
-#                       layerId = ~county,
-#                       label = ~county,
-#                       fillColor = "#BF40BF",
-#                       col = "black",
-#                       weight = 2,
-#                       fillOpacity = 0.1)
-#       } else {
-#         filtered_data_result <- michigan_df()[grepl(input$county, michigan_df()$county, ignore.case = TRUE), ]
-#
-#         if (nrow(filtered_data_result) > 0) {
-#           filtered_data(filtered_data_result)
-#
-#           leafletProxy("inputMap", session) %>%
-#             clearShapes() %>%
-#             addPolygons(data = michigan_df(),
-#                         layerId = ~county,
-#                         label = ~county,
-#                         fillColor = "#BF40BF",
-#                         col = "black",
-#                         weight = 2,
-#                         fillOpacity = 0.1) %>%
-#             addPolygons(data = filtered_data(),
-#                         layerId = ~county,
-#                         label = ~county,
-#                         fillColor = "#BF40BF",
-#                         col = "black",
-#                         weight = 2,
-#                         fillOpacity = 1)
-#         } else {
-#           filtered_data(NULL)  # Clear filtered data if no matches found
-#           leafletProxy("inputMap", session) %>%
-#             clearShapes() %>%
-#             addPolygons(data = michigan_df(),
-#                         layerId = ~county,
-#                         label = ~county,
-#                         fillColor = "#BF40BF",
-#                         col = "black",
-#                         weight = 2,
-#                         fillOpacity = 0.1)
-#         }
-#       }
-#     })
-#
-#
-#
-#
-
-
-
-
-    #########################################################
 
     observeEvent(list(input$region, input$county), {
 
+      # Define a reactive variable to store the filtered data
+      filtered_data_result <- reactiveVal(NULL)
+
+      # Perform filtering based on county and region
       if (input$county == "" & input$region == "All") {
-        michigan_df() |> filtered_data()
+        filtered_data(michigan_df())
+      } else {
+        filtered_data_temp <- michigan_df()
 
+        if (input$county != "") {
+          filtered_data_temp <- filtered_data_temp %>%
+            filter(grepl(input$county, county, ignore.case = TRUE))
+        }
 
+        if (input$region != "All") {
+          filtered_data_temp <- filtered_data_temp %>%
+            filter(region == input$region)
+        }
+
+        # Check if any rows match the filter criteria
+        if (nrow(filtered_data_temp) > 0) {
+          filtered_data(filtered_data_temp)
+        } else {
+          filtered_data(NULL)
+        }
+      }
+
+      # Update the map
+      if(input$county == "" & input$region == "All"){
         leafletProxy("inputMap", session) %>%
           clearShapes() %>%
           addPolygons(data = michigan_df(),
@@ -252,11 +178,7 @@ server <- function(input, output, session) {
                       col = "black",
                       weight = 2,
                       fillOpacity = 0.1)
-
-
-      } else if (input$region == "All"){
-        michigan_df()[grepl(input$county, michigan_df()$county, ignore.case = TRUE), ] |> filtered_data()
-
+      }else if (!is.null(filtered_data())) {
         leafletProxy("inputMap", session) %>%
           clearShapes() %>%
           addPolygons(data = michigan_df(),
@@ -273,36 +195,7 @@ server <- function(input, output, session) {
                       col = "black",
                       weight = 2,
                       fillOpacity = 1)
-
-
-      } else if (input$county == ""){
-        michigan_df()[grepl(input$region, michigan_df()$region, ignore.case = TRUE), ] |> filtered_data()
-
-        leafletProxy("inputMap", session) %>%
-          clearShapes() %>%
-          addPolygons(data = michigan_df(),
-
-                      label = ~county,
-                      layerId = ~county,
-                      fillColor = "#BF40BF",
-                      col = "black",
-                      weight = 2,
-                      fillOpacity = 0.1) %>%
-          addPolygons(data = filtered_data(),
-                      layerId = ~county,
-                      label = ~county,
-                      fillColor = "#BF40BF",
-                      col = "black",
-                      weight = 2,
-                      fillOpacity = 1)
-
-      }else{
-        michigan_df()[grepl(input$county, michigan_df()$county, ignore.case = TRUE), ]
-
-        subset(michigan_df(), grepl(input$county, county, ignore.case = TRUE) |
-                 grepl(input$region, region, ignore.case = TRUE)) |> filtered_data()
-
-
+      } else {
         leafletProxy("inputMap", session) %>%
           clearShapes() %>%
           addPolygons(data = michigan_df(),
@@ -311,90 +204,9 @@ server <- function(input, output, session) {
                       fillColor = "#BF40BF",
                       col = "black",
                       weight = 2,
-                      fillOpacity = 0.1) %>%
-          addPolygons(data = filtered_data(),
-                      layerId = ~county,
-                      label = ~county,
-                      fillColor = "#BF40BF",
-                      col = "black",
-                      weight = 2,
-                      fillOpacity = 1)
-
+                      fillOpacity = 0.1)
       }
-
-
-   #   if (nrow(filtered_data_result) > 0) {
-        #           filtered_data(filtered_data_result)
-        #
-        #           leafletProxy("inputMap", session) %>%
-        #             clearShapes() %>%
-        #             addPolygons(data = michigan_df(),
-        #                         layerId = ~county,
-        #                         label = ~county,
-        #                         fillColor = "#BF40BF",
-        #                         col = "black",
-        #                         weight = 2,
-        #                         fillOpacity = 0.1) %>%
-        #             addPolygons(data = filtered_data(),
-        #                         layerId = ~county,
-        #                         label = ~county,
-        #                         fillColor = "#BF40BF",
-        #                         col = "black",
-        #                         weight = 2,
-        #                         fillOpacity = 1)
-        #         } else {
-        #           filtered_data(NULL)  # Clear filtered data if no matches found
-        #           leafletProxy("inputMap", session) %>%
-        #             clearShapes() %>%
-        #             addPolygons(data = michigan_df(),
-        #                         layerId = ~county,
-        #                         label = ~county,
-        #                         fillColor = "#BF40BF",
-        #                         col = "black",
-        #                         weight = 2,
-        #                         fillOpacity = 0.1)
-        #         }
-
-
-      # else {
-      #   filtered_data(NULL)  # Clear filtered data if no matches found
-      #   leafletProxy("inputMap", session) %>%
-      #     clearShapes() %>%
-      #     addPolygons(data = michigan_df(),
-      #                 layerId = ~county,
-      #                 label = ~county,
-      #                 fillColor = "#BF40BF",
-      #                 col = "black",
-      #                 weight = 2,
-      #                 fillOpacity = 0.1)
-      # }
-
-      # investigate weird crashing when you search for something wrong
-      # if(!(input$county %in% michigan_df()$county)){
-      #   michigan_df() |> filtered_data()
-      #
-      #
-      #   leafletProxy("inputMap", session) %>%
-      #     clearShapes() %>%
-      #     addPolygons(data = michigan_df(),
-      #                 layerId = ~county,
-      #                 label = ~county,
-      #                 fillColor = "#BF40BF",
-      #                 col = "black",
-      #                 weight = 2,
-      #                 fillOpacity = 0.1)
-      # }
-
-
-
-
-
-
     })
-
-
-
-
 
 
 
@@ -402,6 +214,11 @@ server <- function(input, output, session) {
     output$table_main <- DT::renderDataTable({
         # main output
 
+      if(is.null(filtered_data())){
+
+        print(dplyr::tibble("Error" = "Please enter a valid County name."))
+
+      }else{
 
       filtered_data() |>
         select(county, misuvi_score, burden_score,  # select our variables of interest
@@ -445,7 +262,7 @@ server <- function(input, output, session) {
           fontSize = '24px', # increase cell text size
 
         )
-
+      }
     })
 
     observeEvent(input$table_main_rows_selected, {
@@ -497,12 +314,6 @@ server <- function(input, output, session) {
       )
     })
 
-    # selected_row <- reactive({
-    #   req(input$table_main_rows_selected)
-    #   row_index <- input$table_main_rows_selected
-    #   filtered_data()[row_index, , drop = FALSE] |> sf::st_set_geometry(NULL)
-    # })
-
     selected_row <- reactiveVal(NULL)
 
     output$details_table <- renderDT({
@@ -514,10 +325,6 @@ server <- function(input, output, session) {
                                              original_names = gsub("2020 2022", original_names, replacement = "(2020-2022)"),
                                              original_names = gsub("2018 2022", original_names, replacement = "(2018-2022)")) |>
         filter(cleaned_names %in% names(filtered_data()))
-
-
-
-   # print( filtered_data()[filtered_data()$county == selected_row()$county,])
 
 
      sub <-  filtered_data()[filtered_data()$county == selected_row()$county,] |>
@@ -575,30 +382,6 @@ server <- function(input, output, session) {
     })
 
 
-# output$map <- renderPlot({
-#
-#
-#   mi_highlight <- mi |>
-#     mutate(NAME = case_when(NAME == "St. Joseph" ~ "Saint Joseph",
-#                             NAME == "St. Clair" ~ "Saint Clair",
-#                             TRUE ~ NAME)) |>
-#     filter(NAME %in% filtered_data()$county)
-#
-#
-#   mi |>
-#     ggplot() +
-#     geom_sf() +
-#     geom_sf(data = mi_highlight, fill = "lightblue", color = "black") +
-#     theme_void()
-#
-#
-#
-# })
-
-
-#rv <- reactiveValues()
-
-
 output$inputMap <- renderLeaflet({
 
 
@@ -625,27 +408,6 @@ output$inputMap <- renderLeaflet({
 })
 
 
-# observeEvent(list(input$county, input$region), {
-#
-#   if (input$region == "All"){
-#     #michigan_df()[grepl(input$county, michigan_df()$county, ignore.case = TRUE), ] |> filtered_data()
-#
-#     group_hl <- mi[grepl(input$county, mi$NAME, ignore.case = TRUE), ]
-#
-#   }
-#
-#   leafletProxy("inputMap", session) %>%
-#     removeShape("filt") %>%
-#     addPolygons(data = group_hl,
-#                 layerId = "filt",
-#                 fillColor = "#BF40BF",
-#                 weight = 3,
-#                 fillOpacity = 1)
-#
-# })
-
-
-
 observeEvent(input$inputMap_shape_click, {
   click <- input$inputMap_shape_click
 
@@ -657,8 +419,15 @@ observeEvent(input$inputMap_shape_click, {
 
     rv$mi <- clicked_county
 
-    leafletProxy("inputMap", session) %>%
-      removeShape("selected") %>%
+    leafletProxy("inputMap", session) |>
+      removeShape("selected") |>
+      addPolygons(data = mi,
+                 layerId = ~NAME,
+                 label = ~NAME,
+                 fillColor = "#BF40BF",
+                 col = "black",
+                 weight = 2,
+                 fillOpacity = 0.1) |>
       addPolygons(data = clicked_county,
                   layerId = "selected",
                   fillColor = "#BF40BF",
