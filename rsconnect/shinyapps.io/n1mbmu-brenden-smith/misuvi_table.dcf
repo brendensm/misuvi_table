@@ -1,0 +1,12 @@
+name: misuvi_table
+title: misuvi_table
+username: n1mbmu-brenden-smith
+account: n1mbmu-brenden-smith
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12184133
+bundleId: 8743936
+url: https://n1mbmu-brenden-smith.shinyapps.io/misuvi_table/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE

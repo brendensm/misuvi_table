@@ -105,7 +105,7 @@ server <- function(input, output, session) {
          the main table will open a closer view of the county's data. Cells that are green are better than the county average,
          while those that are red are worse than the county average.
          <br><br>",
-         "All data can be access via the
+         "All data can be accessed via the
          <a href = 'https://cran.r-project.org/web/packages/misuvi/index.html'>misuvi package</a>
          or from the <a href = 'https://www.michigan.gov/opioids/category-data'> State of Michigan's Website.</a>
          You can read the full technical documentation for the data
