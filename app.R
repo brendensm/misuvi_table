@@ -246,7 +246,6 @@ server <- function(input, output, session) {
 
 
 
-  #    metrics <- misuvi_load()
 
      sub <-  filtered_data()[filtered_data()$county == selected_row()$county,] |>
         select(-c(fips, county)) |>
@@ -254,9 +253,7 @@ server <- function(input, output, session) {
         as.data.frame() |>
         tibble::rownames_to_column() |>
         filter(!(rowname %in% c("misuvi_score", "svi_score", "burden_score", "resource_score"))) |>
-
         left_join(dict, by = c("rowname" = "cleaned_names")) |>
-
         select(original_names, V1)
 
         sub[1:8,] |>
@@ -324,12 +321,12 @@ output$map <- renderPlot({
 
 
 
+
+
+
 }
 
 # Run the application
 shinyApp(ui = ui, server = server)
 
-#
-# t <- metrics[metrics$county == "Monroe",] |>
-#   select(-c(fips, county)) |>
-#   t() |> as.data.frame() |> tibble::rownames_to_column()
+
